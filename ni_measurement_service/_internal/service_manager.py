@@ -6,7 +6,9 @@ import grpc
 
 from ni_measurement_service._internal.discovery_client import DiscoveryClient
 from ni_measurement_service._internal.grpc_servicer import MeasurementServiceServicer
+from ni_measurement_service._internal.health_servicer import HealthServicer
 from ni_measurement_service._internal.parameter.metadata import ParameterMetadata
+from ni_measurement_service._internal.stubs import HealthCheck_pb2_grpc
 from ni_measurement_service._internal.stubs import Measurement_pb2_grpc
 from ni_measurement_service._internal.utilities import console_exit_functions
 from ni_measurement_service.measurement.info import MeasurementInfo, ServiceInfo
@@ -60,13 +62,15 @@ class GrpcService:
 
         """
         self.server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-        self.servicer = MeasurementServiceServicer(
+        self.measurement_servicer = MeasurementServiceServicer(
             measurement_info,
             configuration_parameter_list,
             output_parameter_list,
             measure_function,
         )
-        Measurement_pb2_grpc.add_MeasurementServiceServicer_to_server(self.servicer, self.server)
+        Measurement_pb2_grpc.add_MeasurementServiceServicer_to_server(self.measurement_servicer, self.server)
+        self.health_servicer = HealthServicer()
+        HealthCheck_pb2_grpc.add_HealthServicer_to_server(self.health_servicer, self.server)
         port = str(self.server.add_insecure_port("[::]:0"))
         self.server.start()
         print("Hosted Service at Port:", port)
