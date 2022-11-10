@@ -46,16 +46,17 @@ service_options = ServiceOptions(use_grpc_device=False, grpc_device_address="")
 
 
 @dc_measurement_service.register_measurement
-@dc_measurement_service.configuration("Resource name", nims.DataType.String, "DPS_4145")
+@dc_measurement_service.configuration("Pin name", nims.DataType.String, "Pin1")
 @dc_measurement_service.configuration("Voltage level(V)", nims.DataType.Float, 6.0)
 @dc_measurement_service.configuration("Voltage level range(V)", nims.DataType.Float, 6.0)
 @dc_measurement_service.configuration("Current limit(A)", nims.DataType.Float, 0.01)
 @dc_measurement_service.configuration("Current limit range(A)", nims.DataType.Float, 0.01)
 @dc_measurement_service.configuration("Source delay(s)", nims.DataType.Float, 0.0)
-@dc_measurement_service.output("Voltage Measurement(V)", nims.DataType.Float)
-@dc_measurement_service.output("Current Measurement(A)", nims.DataType.Float)
+@dc_measurement_service.output("Voltage Measurement(V)", nims.DataType.FloatArray1D)
+@dc_measurement_service.output("Current Measurement(A)", nims.DataType.FloatArray1D)
+@dc_measurement_service.output("In Compliance", nims.DataType.BooleanArray1D)
 def measure(
-    resource_name,
+    pin_name,
     voltage_level,
     voltage_level_range,
     current_limit,
@@ -70,19 +71,40 @@ def measure(
 
     """
     # User Logic :
-    logging.info(
-        "Executing measurement: resource_name=%s voltage_level=%g", resource_name, voltage_level
+    logging.info("Executing measurement: pin_name=%s voltage_level=%g", pin_name, voltage_level)
+
+    session_management_client = nims.session_management.Client(
+        grpc_channel=dc_measurement_service.get_channel(
+            provided_interface=nims.session_management.GRPC_SERVICE_INTERFACE_NAME,
+            service_class=nims.session_management.GRPC_SERVICE_CLASS,
+        )
     )
 
     with contextlib.ExitStack() as stack:
+        reservation = stack.enter_context(
+            session_management_client.reserve_sessions(
+                pin_names=[pin_name],
+                instrument_type_id="niDCPower",
+                context=dc_measurement_service.context.pin_map_context,
+            )
+        )
+
+        resource_name = reservation.session_info[0].resource_name
+        channel_list = reservation.session_info[0].channel_list.split(",")
+
         session_kwargs = {}
         if service_options.use_grpc_device:
             session_grpc_address = service_options.grpc_device_address
+
             if not session_grpc_address:
-                session_grpc_address = dc_measurement_service.discovery_client.resolve_service(
-                    provided_interface=nidcpower.GRPC_SERVICE_INTERFACE_NAME
-                ).insecure_address
-            session_grpc_channel = stack.enter_context(grpc.insecure_channel(session_grpc_address))
+                session_grpc_channel = dc_measurement_service.get_channel(
+                    provided_interface=nidcpower.GRPC_SERVICE_INTERFACE_NAME,
+                    service_class="ni.measurementlink.v1.grpcdeviceserver",
+                )
+            else:
+                session_grpc_channel = dc_measurement_service.channel_pool.get_channel(
+                    target=session_grpc_address
+                )
             session_kwargs["_grpc_options"] = nidcpower.GrpcSessionOptions(
                 session_grpc_channel,
                 session_name=resource_name,
@@ -141,21 +163,30 @@ def measure(
                         pass
                     else:
                         raise
-            channel = session.get_channel_names("0")
-            measured_value = session.channels[channel].measure_multiple()
-            in_compliance = session.channels[channel].query_in_compliance()
+            measured_value = session.channels[channel_list].measure_multiple()
+            in_compliance = [
+                session.channels[channel].query_in_compliance() for channel in channel_list
+            ]
         session = None  # Don't abort after this point
 
-    _log_measured_values(measured_value, in_compliance)
+        _log_measured_values(channel_list, measured_value, in_compliance)
+
     logging.info("Completed measurement")
-    return (measured_value[0].voltage, measured_value[0].current)
+
+    return (
+        (measured.voltage for measured in measured_value),
+        (measured.current for measured in measured_value),
+        in_compliance,
+    )
 
 
-def _log_measured_values(measured_value, in_compliance):
+def _log_measured_values(channel_list, measured_value, in_compliance):
     """Log the measured values."""
-    logging.info("Voltage: %g V", measured_value[0].voltage)
-    logging.info("Current: %g A", measured_value[0].current)
-    logging.info("In compliance: %s", str(in_compliance))
+    for index, channel in enumerate(channel_list):
+        logging.info(f"Channel: {channel}")
+        logging.info("  Voltage: %g V", measured_value[index].voltage)
+        logging.info("  Current: %g A", measured_value[index].current)
+        logging.info("  In compliance: %s", str(in_compliance[index]))
 
 
 @click.command
