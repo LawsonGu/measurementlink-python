@@ -1,4 +1,5 @@
 """Contains methods related to managing driver sessions."""
+from functools import cached_property
 from typing import Iterable, List, NamedTuple
 
 import grpc
@@ -33,7 +34,11 @@ class SessionInformation(NamedTuple):
 class Reservation(object):
     """Manage session reservation."""
 
-    def __init__(self, session_manager: "Client", session_info: List[SessionInformation]):
+    def __init__(
+        self,
+        session_manager: "Client",
+        session_info: Iterable[session_management_service_pb2.SessionInformation],
+    ):
         """Initialise Reservation."""
         self._session_manager = session_manager
         self._session_info = session_info
@@ -49,12 +54,21 @@ class Reservation(object):
 
     def unreserve(self):
         """Unreserve sessions."""
-        self._session_manager.unreserve_sessions((info.session for info in self._session_info))
+        self._session_manager._unreserve_sessions(self._session_info)
 
-    @property
+    @cached_property
     def session_info(self) -> List[SessionInformation]:
         """Return session information."""
-        return self._session_info
+        return [
+            SessionInformation(
+                session=info.session.name,
+                resource_name=info.resource_name,
+                channel_list=info.channel_list,
+                instrument_type_id=info.instrument_type_id,
+                session_exists=info.session_exists,
+            )
+            for info in self._session_info
+        ]
 
 
 class Client(object):
@@ -107,21 +121,14 @@ class Client(object):
 
         return Reservation(
             session_manager=self,
-            session_info=[
-                SessionInformation(
-                    session=info.session.name,
-                    resource_name=info.resource_name,
-                    channel_list=info.channel_list,
-                    instrument_type_id=info.instrument_type_id,
-                    session_exists=info.session_exists,
-                )
-                for info in response.sessions
-            ],
+            session_info=response.sessions,
         )
 
-    def unreserve_sessions(self, session_names: Iterable[str]):
+    def _unreserve_sessions(
+        self, session_info: Iterable[session_management_service_pb2.SessionInformation]
+    ):
         """Unreserves sessions so they can be accessed by other clients."""
-        request = session_management_service_pb2.UnreserveSessionsRequest(session_names)
+        request = session_management_service_pb2.UnreserveSessionsRequest(sessions=session_info)
         self._client.UnreserveSessions(request)
 
     def register_sessions(self, session_info: Iterable[SessionInformation]):

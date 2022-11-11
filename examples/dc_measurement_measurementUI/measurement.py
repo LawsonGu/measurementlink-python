@@ -173,11 +173,11 @@ def measure(
 
     logging.info("Completed measurement")
 
-    return (
-        (measured.voltage for measured in measured_value),
-        (measured.current for measured in measured_value),
+    return [
+        [measured.voltage for measured in measured_value],
+        [measured.current for measured in measured_value],
         in_compliance,
-    )
+    ]
 
 
 def _log_measured_values(channel_list, measured_value, in_compliance):

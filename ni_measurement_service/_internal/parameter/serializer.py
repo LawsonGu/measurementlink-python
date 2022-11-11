@@ -2,7 +2,7 @@
 
 from ast import Bytes
 from io import BytesIO
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable
 
 from google.protobuf.internal import encoder
 
@@ -42,7 +42,7 @@ def deserialize_parameters(
 
 
 def serialize_parameters(
-    parameter_metadata_dict: Dict[int, ParameterMetadata], parameter_value: List[Any]
+    parameter_metadata_dict: Dict[int, ParameterMetadata], parameter_value: Iterable[Any]
 ) -> bytes:
     """Serialize the parameter values in same order based on the metadata_dict.
 
@@ -50,7 +50,7 @@ def serialize_parameters(
     ----
         parameter_metadata_dict (Dict[int, ParameterMetadata]): Parameter metadata by ID.
 
-        parameter_value (List[Any]): List of Parameter values that need to be serialized.
+        parameter_value (Iterable[Any]): Iterable of Parameter values that need to be serialized.
 
     Returns
     -------
